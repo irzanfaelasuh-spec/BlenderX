@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>MyProject — Mini Blender</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">B</span><span>Mini Blender</span></div>
+    <div class="project-title" id="projectTitle">MyProject</div>
+    <div class="top-actions">
+      <button data-action="new">New</button><button data-action="open">Open</button>
+      <button data-action="save">Save</button><button data-action="saveAs">Save As</button>
+      <button data-action="undo">↶</button><button data-action="redo">↷</button>
+      <button id="moreBtn">⋮</button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <aside class="leftbar">
+      <button class="tool active" data-tool="translate" title="Move (G)">G</button>
+      <button class="tool" data-tool="rotate" title="Rotate (R)">R</button>
+      <button class="tool" data-tool="scale" title="Scale (S)">S</button>
+      <div class="sep"></div>
+      <button class="tool" data-add="box">▣</button>
+      <button class="tool" data-add="sphere">●</button>
+      <button class="tool" data-add="cylinder">⬡</button>
+      <button class="tool" data-add="cone">△</button>
+      <button class="tool" data-add="plane">□</button>
+      <button class="tool" data-add="torus">◎</button>
+    </aside>
+
+    <section class="viewport-wrap">
+      <div id="viewport"></div>
+      <div class="viewport-hud">
+        <span id="modeLabel">Move</span>
+        <span id="selectionLabel">Nothing selected</span>
+      </div>
+      <div class="axis-widget"><b>X</b><i>Y</i><em>Z</em></div>
+    </section>
+
+    <aside class="right-panel">
+      <section class="panel outliner">
+        <div class="panel-head"><b>Scene Collection</b><button id="addMenu">＋</button></div>
+        <div id="objectList"></div>
+      </section>
+      <section class="panel properties">
+        <div class="panel-head"><b>Properties</b></div>
+        <div id="propertiesContent" class="property-content">
+          <div class="empty">Select an object to edit its properties.</div>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <section class="timeline">
+    <div class="timeline-head">
+      <div><button id="play">▶</button><button id="pause">Ⅱ</button><button id="stop">■</button></div>
+      <div class="frame-box">Frame <input id="frameInput" type="number" min="1" max="240" value="1"></div>
+      <button id="keyframe">◆ Keyframe</button>
+    </div>
+    <div class="timeline-track">
+      <div class="ruler" id="ruler"></div>
+      <div class="playhead" id="playhead"></div>
+    </div>
+  </section>
+
+  <footer class="statusbar">
+    <span id="status">New Project</span>
+    <span id="dirtyDot"></span>
+    <span class="hint">G Move · R Rotate · S Scale · F Focus · Del Delete</span>
+  </footer>
+</div>
+
+<input id="projectFile" type="file" accept=".json,application/json" hidden>
+<input id="importFile" type="file" accept=".gltf,.glb,.obj,.json" hidden>
+
+<div id="contextMenu" class="menu hidden">
+  <button data-export="gltf">Export GLTF</button><button data-export="glb">Export GLB</button>
+  <button data-export="obj">Export OBJ</button><button data-export="json">Export JSON</button>
+  <button data-export="png">Screenshot PNG</button>
+  <hr>
+  <button data-import="gltf">Import GLTF / GLB</button><button data-import="obj">Import OBJ</button>
+</div>
+
+<div id="dialog" class="dialog hidden"><div class="dialog-card">
+  <h3 id="dialogTitle">Confirm</h3><p id="dialogText"></p><div class="dialog-actions" id="dialogActions"></div>
+</div></div>
+
+<div id="toast"></div>
+
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"}}
+</script>
+<script type="module" src="script.js"></script>
+</body>
+</html>
