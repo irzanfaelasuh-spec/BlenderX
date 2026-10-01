@@ -7,7 +7,7 @@ import { OBJExporter } from "three/addons/exporters/OBJExporter.js";
 import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 
 /* =========================================================
-   DOM HELPERS
+   DOM
 ========================================================= */
 
 const $ = (s) => document.querySelector(s);
@@ -16,7 +16,7 @@ const $$ = (s) => [...document.querySelectorAll(s)];
 const viewport = $("#viewport");
 
 /* =========================================================
-   THREE.JS CORE
+   THREE CORE
 ========================================================= */
 
 const scene = new THREE.Scene();
@@ -26,7 +26,7 @@ const camera = new THREE.PerspectiveCamera(
     50,
     1,
     0.01,
-    5000
+    50000
 );
 
 camera.position.set(7, 5, 9);
@@ -37,16 +37,19 @@ const renderer = new THREE.WebGLRenderer({
 });
 
 renderer.setPixelRatio(
-    Math.min(devicePixelRatio, 2)
+    Math.min(window.devicePixelRatio, 2)
 );
 
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+
 renderer.shadowMap.enabled = true;
+renderer.shadowMap.type =
+    THREE.PCFSoftShadowMap;
 
 viewport.appendChild(renderer.domElement);
 
 /* =========================================================
-   CONTROLS
+   CAMERA CONTROLS
 ========================================================= */
 
 const orbit = new OrbitControls(
@@ -56,99 +59,195 @@ const orbit = new OrbitControls(
 
 orbit.enableDamping = true;
 orbit.dampingFactor = 0.08;
+
 orbit.target.set(0, 1, 0);
+
+orbit.minDistance = 0.15;
+orbit.maxDistance = 100000;
+
+/* =========================================================
+   TRANSFORM GIZMO
+========================================================= */
 
 const transform = new TransformControls(
     camera,
     renderer.domElement
 );
 
+transform.setSize(0.9);
+
+transform.showX = true;
+transform.showY = true;
+transform.showZ = true;
+
 scene.add(transform);
 
 /* =========================================================
-   HELPERS
+   INFINITE BUILD GRID
 ========================================================= */
 
+const GRID_SIZE = 200;
+const GRID_DIVISIONS = 40;
+const GRID_STEP =
+    GRID_SIZE / GRID_DIVISIONS;
+
 const grid = new THREE.GridHelper(
-    30,
-    30,
+    GRID_SIZE,
+    GRID_DIVISIONS,
     0x4b5057,
     0x2b2f34
 );
 
+grid.material.transparent = true;
+grid.material.opacity = 0.72;
+
 scene.add(grid);
 
 const axes = new THREE.AxesHelper(3);
+
 scene.add(axes);
+
+/*
+    Grid ini hanya visual.
+
+    Tidak ada batas build sebenarnya.
+    Object tetap bisa berada di:
+    X 100000
+    Y 50000
+    Z -90000
+
+    Grid akan mengikuti posisi kamera.
+*/
+
+function updateInfiniteGrid() {
+    const x =
+        Math.floor(
+            camera.position.x /
+                GRID_STEP
+        ) * GRID_STEP;
+
+    const z =
+        Math.floor(
+            camera.position.z /
+                GRID_STEP
+        ) * GRID_STEP;
+
+    grid.position.x = x;
+    grid.position.z = z;
+}
 
 /* =========================================================
    LIGHTING
 ========================================================= */
 
-const ambient = new THREE.AmbientLight(
-    0xffffff,
-    0.55
-);
+const ambient =
+    new THREE.AmbientLight(
+        0xffffff,
+        0.55
+    );
 
 ambient.name = "Ambient Light";
+
 scene.add(ambient);
 
-const sun = new THREE.DirectionalLight(
-    0xffffff,
-    1.4
-);
+const sun =
+    new THREE.DirectionalLight(
+        0xffffff,
+        1.4
+    );
 
 sun.name = "Directional Light";
+
 sun.position.set(5, 9, 4);
+
 sun.castShadow = true;
+
+sun.shadow.mapSize.set(
+    2048,
+    2048
+);
 
 scene.add(sun);
 
-const point = new THREE.PointLight(
-    0x88aaff,
-    25,
-    30
-);
+const point =
+    new THREE.PointLight(
+        0x88aaff,
+        25,
+        30
+    );
 
 point.name = "Point Light";
-point.position.set(-3, 4, 3);
+
+point.position.set(
+    -3,
+    4,
+    3
+);
 
 scene.add(point);
 
 /* =========================================================
-   EDITOR STATE
+   STATE
 ========================================================= */
 
-const raycaster = new THREE.Raycaster();
-const mouse = new THREE.Vector2();
+const raycaster =
+    new THREE.Raycaster();
+
+const mouse =
+    new THREE.Vector2();
 
 let selected = null;
+
 let tool = "translate";
 
-let projectName = "MyProject";
+let projectName =
+    "MyProject";
+
 let dirty = false;
 
 let saveHandle = null;
 
 let playing = false;
+
 let frame = 1;
 
+let animationTime = 0;
+
+let lastAnimationTime =
+    performance.now();
+
 let history = [];
+
 let future = [];
 
 let restoring = false;
 
 const animData = new Map();
 
+const FPS = 30;
+
+const MAX_FRAME = 240;
+
 /* =========================================================
    RESIZE
 ========================================================= */
 
 function resize() {
-    const width = viewport.clientWidth;
-    const height = viewport.clientHeight;
+    const width =
+        Math.max(
+            1,
+            viewport.clientWidth
+        );
 
-    camera.aspect = width / height;
+    const height =
+        Math.max(
+            1,
+            viewport.clientHeight
+        );
+
+    camera.aspect =
+        width / height;
+
     camera.updateProjectionMatrix();
 
     renderer.setSize(
@@ -158,12 +257,15 @@ function resize() {
     );
 }
 
-addEventListener("resize", resize);
+addEventListener(
+    "resize",
+    resize
+);
 
 resize();
 
 /* =========================================================
-   MATERIAL / GEOMETRY
+   MATERIAL
 ========================================================= */
 
 function makeMat() {
@@ -176,6 +278,10 @@ function makeMat() {
         emissive: 0x000000
     });
 }
+
+/* =========================================================
+   GEOMETRY
+========================================================= */
 
 function geometry(type) {
     switch (type) {
@@ -221,27 +327,41 @@ function geometry(type) {
                 16,
                 40
             );
+
+        default:
+            return new THREE.BoxGeometry(
+                2,
+                2,
+                2
+            );
     }
 }
 
 /* =========================================================
-   OBJECT MANAGEMENT
+   OBJECT CREATION
 ========================================================= */
 
-function addObject(type, focus = true) {
-    const object = new THREE.Mesh(
-        geometry(type),
-        makeMat()
-    );
+function addObject(
+    type,
+    focus = true
+) {
+    const object =
+        new THREE.Mesh(
+            geometry(type),
+            makeMat()
+        );
 
     object.name =
-        type[0].toUpperCase() +
+        type.charAt(0).toUpperCase() +
         type.slice(1);
 
-    object.userData.primitive = type;
+    object.userData.primitive =
+        type;
 
     object.position.y =
-        type === "plane" ? 0 : 0;
+        type === "plane"
+            ? 0
+            : 0;
 
     object.castShadow = true;
     object.receiveShadow = true;
@@ -255,32 +375,40 @@ function addObject(type, focus = true) {
     }
 
     mark();
+
     pushHistory();
 
     return object;
 }
 
+/* =========================================================
+   SELECTION
+========================================================= */
+
 function select(object) {
     if (selected) {
         selected.material.emissive.setHex(
-            selected.userData.baseEmissive || 0
+            selected.userData.baseEmissive ??
+                0
         );
     }
 
     selected = object;
 
-    if (object) {
-        object.userData.baseEmissive =
-            object.material.emissive.getHex();
+    if (selected) {
+        selected.userData.baseEmissive =
+            selected.material.emissive.getHex();
 
-        object.material.emissive.setHex(
+        selected.material.emissive.setHex(
             0x24384a
         );
 
-        transform.attach(object);
+        transform.attach(
+            selected
+        );
 
         $("#selectionLabel").textContent =
-            object.name;
+            selected.name;
     } else {
         transform.detach();
 
@@ -289,11 +417,18 @@ function select(object) {
     }
 
     renderList();
+
     renderProps();
 }
 
+/* =========================================================
+   DELETE
+========================================================= */
+
 function deleteSelected() {
-    if (!selected) return;
+    if (!selected) {
+        return;
+    }
 
     const object = selected;
 
@@ -301,28 +436,48 @@ function deleteSelected() {
 
     scene.remove(object);
 
-    object.geometry.dispose();
-    object.material.dispose();
+    object.geometry?.dispose();
+
+    object.material?.dispose();
+
+    animData.delete(object);
 
     mark();
+
     pushHistory();
 
-    toast("Object deleted");
+    toast(
+        "Object deleted"
+    );
 }
 
+/* =========================================================
+   FOCUS OBJECT
+========================================================= */
+
 function focusObject(object) {
-    const box = new THREE.Box3()
-        .setFromObject(object);
+    const box =
+        new THREE.Box3()
+            .setFromObject(object);
 
-    const center = box.getCenter(
-        new THREE.Vector3()
+    const center =
+        box.getCenter(
+            new THREE.Vector3()
+        );
+
+    const size =
+        Math.max(
+            1,
+            box
+                .getSize(
+                    new THREE.Vector3()
+                )
+                .length()
+        );
+
+    orbit.target.copy(
+        center
     );
-
-    const size = box
-        .getSize(new THREE.Vector3())
-        .length();
-
-    orbit.target.copy(center);
 
     camera.position.copy(
         center
@@ -335,25 +490,35 @@ function focusObject(object) {
     );
 
     orbit.update();
+
+    updateInfiniteGrid();
 }
 
 /* =========================================================
-   TRANSFORM TOOLS
+   TRANSFORM TOOL
 ========================================================= */
 
 function setTool(type) {
     tool = type;
 
-    transform.setMode(type);
-
-    $$(".tool[data-tool]").forEach(
-        (button) => {
-            button.classList.toggle(
-                "active",
-                button.dataset.tool === type
-            );
-        }
+    transform.setMode(
+        type
     );
+
+    transform.setSize(
+        0.9
+    );
+
+    $$(".tool[data-tool]")
+        .forEach(
+            (button) => {
+                button.classList.toggle(
+                    "active",
+                    button.dataset.tool ===
+                        type
+                );
+            }
+        );
 
     $("#modeLabel").textContent =
         type === "translate"
@@ -366,7 +531,8 @@ function setTool(type) {
 transform.addEventListener(
     "dragging-changed",
     (event) => {
-        orbit.enabled = !event.value;
+        orbit.enabled =
+            !event.value;
     }
 );
 
@@ -374,6 +540,7 @@ transform.addEventListener(
     "objectChange",
     () => {
         renderProps();
+
         mark(false);
     }
 );
@@ -390,59 +557,89 @@ transform.addEventListener(
 ========================================================= */
 
 function renderList() {
-    const box = $("#objectList");
+    const box =
+        $("#objectList");
 
     box.innerHTML = "";
 
     scene.children
-        .filter((object) => object.isMesh)
-        .forEach((object) => {
-            const row =
-                document.createElement("div");
+        .filter(
+            (object) =>
+                object.isMesh
+        )
+        .forEach(
+            (object) => {
+                const row =
+                    document.createElement(
+                        "div"
+                    );
 
-            row.className =
-                "object-row" +
-                (object === selected
-                    ? " selected"
-                    : "");
+                row.className =
+                    "object-row" +
+                    (
+                        object ===
+                        selected
+                            ? " selected"
+                            : ""
+                    );
 
-            row.innerHTML = `
-                <span>◇</span>
-                <span>${esc(object.name)}</span>
-                <button class="eye">
-                    ${object.visible ? "◉" : "○"}
-                </button>
-            `;
+                row.innerHTML = `
+                    <span>◇</span>
+                    <span>
+                        ${esc(
+                            object.name
+                        )}
+                    </span>
 
-            row.onclick = (event) => {
-                if (
-                    event.target.classList.contains(
-                        "eye"
-                    )
-                ) {
-                    object.visible =
-                        !object.visible;
+                    <button class="eye">
+                        ${
+                            object.visible
+                                ? "◉"
+                                : "○"
+                        }
+                    </button>
+                `;
 
-                    mark();
-                    pushHistory();
-                    renderList();
+                row.onclick =
+                    (event) => {
+                        if (
+                            event.target
+                                .classList
+                                .contains(
+                                    "eye"
+                                )
+                        ) {
+                            object.visible =
+                                !object.visible;
 
-                    return;
-                }
+                            mark();
 
-                select(object);
-            };
+                            pushHistory();
 
-            box.appendChild(row);
-        });
+                            renderList();
+
+                            return;
+                        }
+
+                        select(
+                            object
+                        );
+                    };
+
+                box.appendChild(
+                    row
+                );
+            }
+        );
 }
 
 /* =========================================================
-   PROPERTIES PANEL
+   PROPERTIES
 ========================================================= */
 
 function renderProps() {
-    const box = $("#propertiesContent");
+    const box =
+        $("#propertiesContent");
 
     if (!selected) {
         box.innerHTML = `
@@ -454,8 +651,11 @@ function renderProps() {
         return;
     }
 
-    const object = selected;
-    const material = object.material;
+    const object =
+        selected;
+
+    const material =
+        object.material;
 
     box.innerHTML = `
         <div class="group">
@@ -489,7 +689,9 @@ function renderProps() {
             </div>
 
             <div class="prop">
-                <label>Color</label>
+                <label>
+                    Color
+                </label>
 
                 <input
                     id="pColor"
@@ -500,7 +702,9 @@ function renderProps() {
             </div>
 
             <div class="prop">
-                <label>Emissive</label>
+                <label>
+                    Emissive
+                </label>
 
                 <input
                     id="pEmissive"
@@ -511,7 +715,9 @@ function renderProps() {
             </div>
 
             <div class="prop">
-                <label>Metalness</label>
+                <label>
+                    Metalness
+                </label>
 
                 <input
                     id="pMetal"
@@ -524,7 +730,9 @@ function renderProps() {
             </div>
 
             <div class="prop">
-                <label>Roughness</label>
+                <label>
+                    Roughness
+                </label>
 
                 <input
                     id="pRough"
@@ -537,7 +745,9 @@ function renderProps() {
             </div>
 
             <div class="prop">
-                <label>Opacity</label>
+                <label>
+                    Opacity
+                </label>
 
                 <input
                     id="pOpacity"
@@ -556,86 +766,108 @@ function renderProps() {
             </div>
 
             <div class="prop">
-                <label>Name</label>
+                <label>
+                    Name
+                </label>
 
                 <input
                     id="pName"
                     type="text"
-                    value="${esc(object.name)}"
+                    value="${esc(
+                        object.name
+                    )}"
                 >
             </div>
         </div>
     `;
 
-    $$(".v").forEach((input) => {
-        input.addEventListener(
-            "input",
-            () => {
-                const attribute =
-                    input.dataset.a;
+    $$(".v")
+        .forEach(
+            (input) => {
+                input.addEventListener(
+                    "input",
+                    () => {
+                        const attribute =
+                            input.dataset.a;
 
-                const axis =
-                    input.dataset.b;
+                        const axis =
+                            input.dataset.b;
 
-                selected[attribute][axis] =
-                    Number(input.value);
+                        selected[
+                            attribute
+                        ][axis] =
+                            Number(
+                                input.value
+                            );
 
-                mark(false);
+                        mark(false);
+                    }
+                );
             }
         );
-    });
 
-    $("#pColor").oninput = () => {
-        material.color.set(
-            $("#pColor").value
-        );
+    $("#pColor").oninput =
+        () => {
+            material.color.set(
+                $("#pColor").value
+            );
 
-        mark(false);
-    };
+            mark(false);
+        };
 
-    $("#pEmissive").oninput = () => {
-        material.emissive.set(
-            $("#pEmissive").value
-        );
+    $("#pEmissive").oninput =
+        () => {
+            material.emissive.set(
+                $("#pEmissive").value
+            );
 
-        mark(false);
-    };
+            mark(false);
+        };
 
-    $("#pMetal").oninput = () => {
-        material.metalness =
-            +$("#pMetal").value;
+    $("#pMetal").oninput =
+        () => {
+            material.metalness =
+                +$("#pMetal").value;
 
-        mark(false);
-    };
+            mark(false);
+        };
 
-    $("#pRough").oninput = () => {
-        material.roughness =
-            +$("#pRough").value;
+    $("#pRough").oninput =
+        () => {
+            material.roughness =
+                +$("#pRough").value;
 
-        mark(false);
-    };
+            mark(false);
+        };
 
-    $("#pOpacity").oninput = () => {
-        material.opacity =
-            +$("#pOpacity").value;
+    $("#pOpacity").oninput =
+        () => {
+            material.opacity =
+                +$("#pOpacity").value;
 
-        material.transparent =
-            material.opacity < 1;
+            material.transparent =
+                material.opacity < 1;
 
-        mark(false);
-    };
+            mark(false);
+        };
 
-    $("#pName").onchange = () => {
-        object.name =
-            $("#pName").value.trim() ||
-            "Object";
+    $("#pName").onchange =
+        () => {
+            object.name =
+                $("#pName").value.trim() ||
+                "Object";
 
-        renderList();
+            renderList();
 
-        mark();
-        pushHistory();
-    };
+            mark();
+
+            pushHistory();
+        };
 }
+
+/* =========================================================
+   VECTOR INPUT
+========================================================= */
 
 function vec(
     label,
@@ -645,37 +877,47 @@ function vec(
 ) {
     return `
         <div class="prop">
-            <label>${label}</label>
+            <label>
+                ${label}
+            </label>
 
             <div class="triple">
-                ${["x", "y", "z"]
-                    .map(
-                        (axis) => `
-                            <input
-                                class="v"
-                                data-a="${
-                                    key === "rot"
-                                        ? "rotation"
-                                        : key
-                                }"
-                                data-b="${axis}"
-                                type="number"
-                                step="${
-                                    rotation
-                                        ? ".01"
-                                        : ".1"
-                                }"
-                                value="${value[
-                                    axis
-                                ].toFixed(3)}"
-                            >
-                        `
-                    )
-                    .join("")}
+                ${
+                    ["x", "y", "z"]
+                        .map(
+                            (axis) => `
+                                <input
+                                    class="v"
+                                    data-a="${
+                                        key === "rot"
+                                            ? "rotation"
+                                            : key
+                                    }"
+                                    data-b="${axis}"
+                                    type="number"
+                                    step="${
+                                        rotation
+                                            ? ".01"
+                                            : ".1"
+                                    }"
+                                    value="${value[
+                                        axis
+                                    ].toFixed(
+                                        3
+                                    )}"
+                                >
+                            `
+                        )
+                        .join("")
+                }
             </div>
         </div>
     `;
 }
+
+/* =========================================================
+   ESCAPE HTML
+========================================================= */
 
 function esc(value) {
     return String(value).replace(
@@ -687,7 +929,9 @@ function esc(value) {
                 ">": "&gt;",
                 '"': "&quot;",
                 "'": "&#39;"
-            })[character]
+            })[
+                character
+            ]
     );
 }
 
@@ -697,87 +941,145 @@ function esc(value) {
 
 function sceneData() {
     return {
-        version: 1,
+        version: 2,
 
-        name: projectName,
+        name:
+            projectName,
 
         background:
             scene.background.getHex(),
 
         camera: {
-            p: camera.position.toArray(),
-            q: camera.quaternion.toArray(),
-            target: orbit.target.toArray()
+            p:
+                camera.position.toArray(),
+
+            q:
+                camera.quaternion.toArray(),
+
+            target:
+                orbit.target.toArray()
         },
 
         lights: {
-            ambient: ambient.intensity,
-            sun: sun.intensity,
-            point: point.intensity
+            ambient:
+                ambient.intensity,
+
+            sun:
+                sun.intensity,
+
+            point:
+                point.intensity
         },
 
-        objects: scene.children
-            .filter((object) => object.isMesh)
-            .map((object) => ({
-                name: object.name,
+        objects:
+            scene.children
+                .filter(
+                    (object) =>
+                        object.isMesh
+                )
+                .map(
+                    (object) => ({
+                        name:
+                            object.name,
 
-                primitive:
-                    object.userData.primitive,
+                        primitive:
+                            object
+                                .userData
+                                .primitive ||
+                            "box",
 
-                position:
-                    object.position.toArray(),
+                        position:
+                            object.position
+                                .toArray(),
 
-                rotation:
-                    object.rotation.toArray(),
+                        rotation:
+                            object.rotation
+                                .toArray(),
 
-                scale:
-                    object.scale.toArray(),
+                        scale:
+                            object.scale
+                                .toArray(),
 
-                visible:
-                    object.visible,
+                        visible:
+                            object.visible,
 
-                material: {
-                    color:
-                        object.material.color.getHex(),
+                        material: {
+                            color:
+                                object
+                                    .material
+                                    .color
+                                    .getHex(),
 
-                    emissive:
-                        object.material.emissive.getHex(),
+                            emissive:
+                                object
+                                    .material
+                                    .emissive
+                                    .getHex(),
 
-                    metalness:
-                        object.material.metalness,
+                            metalness:
+                                object
+                                    .material
+                                    .metalness,
 
-                    roughness:
-                        object.material.roughness,
+                            roughness:
+                                object
+                                    .material
+                                    .roughness,
 
-                    opacity:
-                        object.material.opacity
-                },
+                            opacity:
+                                object
+                                    .material
+                                    .opacity
+                        },
 
-                animation:
-                    animData.get(object) || []
-            }))
+                        animation:
+                            animData.get(
+                                object
+                            ) || []
+                    })
+                )
     };
 }
 
+/* =========================================================
+   CLEAR SCENE
+========================================================= */
+
 function clearObjects() {
     scene.children
-        .filter((object) => object.isMesh)
-        .forEach((object) => {
-            object.geometry.dispose();
-            object.material.dispose();
+        .filter(
+            (object) =>
+                object.isMesh
+        )
+        .forEach(
+            (object) => {
+                object.geometry?.dispose();
 
-            scene.remove(object);
-        });
+                object.material?.dispose();
+
+                scene.remove(
+                    object
+                );
+            }
+        );
+
+    animData.clear();
 
     select(null);
 }
 
+/* =========================================================
+   LOAD JSON PROJECT
+========================================================= */
+
 function loadData(data) {
     if (
         !data ||
-        !Array.isArray(data.objects)
+        !Array.isArray(
+            data.objects
+        )
     ) {
-        throw Error(
+        throw new Error(
             "Invalid Mini Blender JSON"
         );
     }
@@ -785,94 +1087,173 @@ function loadData(data) {
     clearObjects();
 
     projectName =
-        data.name || "MyProject";
+        data.name ||
+        "MyProject";
 
     scene.background.set(
-        data.background ?? 0x101214
+        data.background ??
+            0x101214
     );
 
     if (data.camera) {
         camera.position.fromArray(
-            data.camera.p || [7, 5, 9]
+            data.camera.p ||
+                [7, 5, 9]
         );
 
         camera.quaternion.fromArray(
-            data.camera.q || [0, 0, 0, 1]
+            data.camera.q ||
+                [0, 0, 0, 1]
         );
 
         orbit.target.fromArray(
-            data.camera.target || [0, 1, 0]
+            data.camera.target ||
+                [0, 1, 0]
         );
     }
 
-    data.objects.forEach((item) => {
-        const object = new THREE.Mesh(
-            geometry(
-                item.primitive || "box"
-            ),
-            makeMat()
-        );
+    data.objects.forEach(
+        (item) => {
+            const object =
+                new THREE.Mesh(
+                    geometry(
+                        item.primitive ||
+                            "box"
+                    ),
+                    makeMat()
+                );
 
-        object.name =
-            item.name || "Object";
+            object.name =
+                item.name ||
+                "Object";
 
-        object.userData.primitive =
-            item.primitive || "box";
+            object.userData.primitive =
+                item.primitive ||
+                "box";
 
-        object.position.fromArray(
-            item.position || [0, 0, 0]
-        );
+            object.position.fromArray(
+                item.position ||
+                    [0, 0, 0]
+            );
 
-        object.rotation.fromArray(
-            item.rotation || [0, 0, 0]
-        );
+            object.rotation.fromArray(
+                item.rotation ||
+                    [0, 0, 0]
+            );
 
-        object.scale.fromArray(
-            item.scale || [1, 1, 1]
-        );
+            object.scale.fromArray(
+                item.scale ||
+                    [1, 1, 1]
+            );
 
-        object.visible =
-            item.visible !== false;
+            object.visible =
+                item.visible !==
+                false;
 
-        Object.assign(
-            object.material,
-            item.material || {}
-        );
+            const material =
+                item.material ||
+                {};
 
-        object.material.color.set(
-            item.material?.color ??
-                0x6688aa
-        );
+            if (
+                material.color !=
+                null
+            ) {
+                object.material.color.set(
+                    material.color
+                );
+            }
 
-        object.material.emissive.set(
-            item.material?.emissive ?? 0
-        );
+            if (
+                material.emissive !=
+                null
+            ) {
+                object.material.emissive.set(
+                    material.emissive
+                );
+            }
 
-        object.material.transparent =
-            object.material.opacity < 1;
+            if (
+                material.metalness !=
+                null
+            ) {
+                object.material.metalness =
+                    material.metalness;
+            }
 
-        scene.add(object);
+            if (
+                material.roughness !=
+                null
+            ) {
+                object.material.roughness =
+                    material.roughness;
+            }
 
-        animData.set(
-            object,
-            item.animation || []
-        );
-    });
+            if (
+                material.opacity !=
+                null
+            ) {
+                object.material.opacity =
+                    material.opacity;
+
+                object.material.transparent =
+                    material.opacity <
+                    1;
+            }
+
+            object.castShadow =
+                true;
+
+            object.receiveShadow =
+                true;
+
+            scene.add(
+                object
+            );
+
+            animData.set(
+                object,
+
+                Array.isArray(
+                    item.animation
+                )
+                    ? item.animation
+                    : []
+            );
+        }
+    );
 
     if (data.lights) {
         ambient.intensity =
-            data.lights.ambient ?? 0.55;
+            data.lights.ambient ??
+            0.55;
 
         sun.intensity =
-            data.lights.sun ?? 1.4;
+            data.lights.sun ??
+            1.4;
 
         point.intensity =
-            data.lights.point ?? 25;
+            data.lights.point ??
+            25;
     }
+
+    playing = false;
+
+    frame = 1;
+
+    animationTime = 0;
+
+    $("#frameInput").value =
+        1;
+
+    $("#playhead").style.left =
+        "0%";
 
     orbit.update();
 
+    updateInfiniteGrid();
+
     renderList();
+
     renderProps();
 
     dirty = false;
@@ -884,7 +1265,7 @@ function loadData(data) {
 }
 
 /* =========================================================
-   PROJECT STATE
+   DIRTY STATE
 ========================================================= */
 
 function mark(show = true) {
@@ -896,21 +1277,33 @@ function mark(show = true) {
         "Unsaved Changes";
 
     if (show) {
-        toast("Unsaved Changes");
+        toast(
+            "Unsaved Changes"
+        );
     }
 }
 
 function updateTitle() {
     $("#projectTitle").textContent =
         projectName +
-        (dirty ? "*" : "");
+        (
+            dirty
+                ? "*"
+                : ""
+        );
 
     $("#dirtyDot").textContent =
-        dirty ? "●" : "";
+        dirty
+            ? "●"
+            : "";
 
     document.title =
         projectName +
-        (dirty ? "*" : "") +
+        (
+            dirty
+                ? "*"
+                : ""
+        ) +
         " — Mini Blender";
 }
 
@@ -919,18 +1312,30 @@ function updateTitle() {
 ========================================================= */
 
 function pushHistory() {
-    if (restoring) return;
-
-    const state =
-        JSON.stringify(sceneData());
-
-    if (history.at(-1) === state) {
+    if (restoring) {
         return;
     }
 
-    history.push(state);
+    const state =
+        JSON.stringify(
+            sceneData()
+        );
 
-    if (history.length > 60) {
+    if (
+        history.at(-1) ===
+        state
+    ) {
+        return;
+    }
+
+    history.push(
+        state
+    );
+
+    if (
+        history.length >
+        60
+    ) {
         history.shift();
     }
 
@@ -940,19 +1345,26 @@ function pushHistory() {
 function restore(state) {
     restoring = true;
 
-    loadData(
-        JSON.parse(state)
-    );
-
-    restoring = false;
+    try {
+        loadData(
+            JSON.parse(state)
+        );
+    } finally {
+        restoring = false;
+    }
 }
 
 function undo() {
-    if (history.length < 2) {
+    if (
+        history.length <
+        2
+    ) {
         return;
     }
 
-    future.push(history.pop());
+    future.push(
+        history.pop()
+    );
 
     restore(
         history.at(-1)
@@ -962,14 +1374,18 @@ function undo() {
 }
 
 function redo() {
-    if (!future.length) {
+    if (
+        !future.length
+    ) {
         return;
     }
 
     const state =
         future.pop();
 
-    history.push(state);
+    history.push(
+        state
+    );
 
     restore(state);
 
@@ -977,10 +1393,53 @@ function redo() {
 }
 
 /* =========================================================
-   SAVE / LOAD
+   DOWNLOAD
 ========================================================= */
 
-async function save(as = false) {
+function downloadBlob(
+    blob,
+    name
+) {
+    const url =
+        URL.createObjectURL(
+            blob
+        );
+
+    const link =
+        document.createElement(
+            "a"
+        );
+
+    link.href = url;
+
+    link.download =
+        name;
+
+    document.body.appendChild(
+        link
+    );
+
+    link.click();
+
+    link.remove();
+
+    setTimeout(
+        () => {
+            URL.revokeObjectURL(
+                url
+            );
+        },
+        1000
+    );
+}
+
+/* =========================================================
+   SAVE
+========================================================= */
+
+async function save(
+    as = false
+) {
     try {
         const data =
             JSON.stringify(
@@ -989,18 +1448,21 @@ async function save(as = false) {
                 2
             );
 
-        const blob = new Blob(
-            [data],
-            {
-                type: "application/json"
-            }
-        );
+        const blob =
+            new Blob(
+                [data],
+                {
+                    type:
+                        "application/json"
+                }
+            );
 
         $("#status").textContent =
             "Saving...";
 
         const name =
-            projectName + ".json";
+            projectName +
+            ".json";
 
         if (
             as ||
@@ -1023,7 +1485,9 @@ async function save(as = false) {
 
                                     accept: {
                                         "application/json":
-                                            [".json"]
+                                            [
+                                                ".json"
+                                            ]
                                     }
                                 }
                             ]
@@ -1042,6 +1506,11 @@ async function save(as = false) {
                 $("#status").textContent =
                     "Saved";
 
+                localStorage.setItem(
+                    "miniBlenderRecovery",
+                    data
+                );
+
                 toast(
                     "Project saved successfully."
                 );
@@ -1051,9 +1520,13 @@ async function save(as = false) {
         }
 
         const writable =
-            await saveHandle.createWritable();
+            await saveHandle
+                .createWritable();
 
-        await writable.write(blob);
+        await writable.write(
+            blob
+        );
+
         await writable.close();
 
         dirty = false;
@@ -1066,9 +1539,13 @@ async function save(as = false) {
         localStorage.setItem(
             "miniBlenderRecent",
             JSON.stringify({
-                name: projectName,
+                name:
+                    projectName,
+
                 data,
-                time: Date.now()
+
+                time:
+                    Date.now()
             })
         );
 
@@ -1080,7 +1557,9 @@ async function save(as = false) {
         toast(
             "Project saved successfully."
         );
-    } catch (error) {
+    } catch (
+        error
+    ) {
         if (
             error.name !==
             "AbortError"
@@ -1093,28 +1572,9 @@ async function save(as = false) {
     }
 }
 
-function downloadBlob(
-    blob,
-    name
-) {
-    const link =
-        document.createElement("a");
-
-    link.href =
-        URL.createObjectURL(blob);
-
-    link.download = name;
-
-    link.click();
-
-    setTimeout(
-        () =>
-            URL.revokeObjectURL(
-                link.href
-            ),
-        1000
-    );
-}
+/* =========================================================
+   OPEN PROJECT
+========================================================= */
 
 function openProject() {
     $("#projectFile").click();
@@ -1123,9 +1583,12 @@ function openProject() {
 $("#projectFile").onchange =
     async (event) => {
         const file =
-            event.target.files[0];
+            event.target
+                .files[0];
 
-        if (!file) return;
+        if (!file) {
+            return;
+        }
 
         try {
             const data =
@@ -1133,9 +1596,12 @@ $("#projectFile").onchange =
                     await file.text()
                 );
 
-            loadData(data);
+            loadData(
+                data
+            );
 
-            saveHandle = null;
+            saveHandle =
+                null;
 
             history = [
                 JSON.stringify(
@@ -1148,14 +1614,17 @@ $("#projectFile").onchange =
             toast(
                 "Project loaded successfully."
             );
-        } catch (error) {
+        } catch (
+            error
+        ) {
             toast(
                 "Failed to load project: " +
                 error.message
             );
         }
 
-        event.target.value = "";
+        event.target.value =
+            "";
     };
 
 /* =========================================================
@@ -1163,46 +1632,66 @@ $("#projectFile").onchange =
 ========================================================= */
 
 async function newProject() {
-    const createNew = async () => {
-        clearObjects();
+    const createNew =
+        async () => {
+            playing = false;
 
-        projectName =
-            "MyProject";
+            animationTime =
+                0;
 
-        camera.position.set(
-            7,
-            5,
-            9
-        );
+            frame = 1;
 
-        orbit.target.set(
-            0,
-            1,
-            0
-        );
+            clearObjects();
 
-        scene.background.set(
-            0x101214
-        );
+            projectName =
+                "MyProject";
 
-        dirty = false;
-        saveHandle = null;
+            camera.position.set(
+                7,
+                5,
+                9
+            );
 
-        history = [
-            JSON.stringify(
-                sceneData()
-            )
-        ];
+            orbit.target.set(
+                0,
+                1,
+                0
+            );
 
-        future = [];
+            scene.background.set(
+                0x101214
+            );
 
-        renderList();
-        renderProps();
-        updateTitle();
+            dirty = false;
 
-        $("#status").textContent =
-            "New Project";
-    };
+            saveHandle =
+                null;
+
+            history = [
+                JSON.stringify(
+                    sceneData()
+                )
+            ];
+
+            future = [];
+
+            updateInfiniteGrid();
+
+            renderList();
+
+            renderProps();
+
+            updateTitle();
+
+            $("#frameInput").value =
+                1;
+
+            $("#playhead").style.left =
+                "0%";
+
+            $("#status").textContent =
+                "New Project";
+        };
 
     if (dirty) {
         dialog(
@@ -1212,21 +1701,30 @@ async function newProject() {
 
             [
                 {
-                    t: "Save",
+                    t:
+                        "Save",
 
-                    c: async () => {
-                        await save(true);
-                        await createNew();
-                    }
+                    c:
+                        async () => {
+                            await save(
+                                true
+                            );
+
+                            await createNew();
+                        }
                 },
 
                 {
-                    t: "Don't Save",
-                    c: createNew
+                    t:
+                        "Don't Save",
+
+                    c:
+                        createNew
                 },
 
                 {
-                    t: "Cancel"
+                    t:
+                        "Cancel"
                 }
             ]
         );
@@ -1244,19 +1742,25 @@ function dialog(
     text,
     buttons
 ) {
-    $("#dialogTitle").textContent =
+    $("#dialogTitle")
+        .textContent =
         title;
 
-    $("#dialogText").textContent =
+    $("#dialogText")
+        .textContent =
         text;
 
     const actions =
         $("#dialogActions");
 
-    actions.innerHTML = "";
+    actions.innerHTML =
+        "";
 
     buttons.forEach(
-        (button, index) => {
+        (
+            button,
+            index
+        ) => {
             const element =
                 document.createElement(
                     "button"
@@ -1270,13 +1774,16 @@ function dialog(
                     ? "primary"
                     : "";
 
-            element.onclick = () => {
-                $("#dialog").classList.add(
-                    "hidden"
-                );
+            element.onclick =
+                () => {
+                    $(
+                        "#dialog"
+                    ).classList.add(
+                        "hidden"
+                    );
 
-                button.c?.();
-            };
+                    button.c?.();
+                };
 
             actions.appendChild(
                 element
@@ -1284,16 +1791,19 @@ function dialog(
         }
     );
 
-    $("#dialog").classList.remove(
-        "hidden"
-    );
+    $("#dialog")
+        .classList.remove(
+            "hidden"
+        );
 }
 
 /* =========================================================
    TOAST
 ========================================================= */
 
-function toast(message) {
+function toast(
+    message
+) {
     const element =
         $("#toast");
 
@@ -1304,35 +1814,49 @@ function toast(message) {
         "show"
     );
 
-    clearTimeout(toast.t);
-
-    toast.t = setTimeout(
-        () =>
-            element.classList.remove(
-                "show"
-            ),
-        2200
+    clearTimeout(
+        toast.t
     );
+
+    toast.t =
+        setTimeout(
+            () => {
+                element.classList.remove(
+                    "show"
+                );
+            },
+            2200
+        );
 }
 
 /* =========================================================
    EXPORT
 ========================================================= */
 
-function exportFile(kind) {
+function exportFile(
+    kind
+) {
     const root =
         new THREE.Group();
 
     scene.children
-        .filter((object) => object.isMesh)
-        .forEach((object) => {
-            root.add(
-                object.clone()
-            );
-        });
+        .filter(
+            (object) =>
+                object.isMesh
+        )
+        .forEach(
+            (object) => {
+                root.add(
+                    object.clone()
+                );
+            }
+        );
 
     try {
-        if (kind === "json") {
+        if (
+            kind ===
+            "json"
+        ) {
             downloadBlob(
                 new Blob(
                     [
@@ -1347,6 +1871,7 @@ function exportFile(kind) {
                             "application/json"
                     }
                 ),
+
                 projectName +
                     ".json"
             );
@@ -1358,32 +1883,45 @@ function exportFile(kind) {
             return;
         }
 
-        if (kind === "png") {
+        if (
+            kind ===
+            "png"
+        ) {
             renderer.domElement.toBlob(
-                (blob) =>
-                    downloadBlob(
-                        blob,
-                        projectName +
-                            ".png"
-                    ),
+                (blob) => {
+                    if (blob) {
+                        downloadBlob(
+                            blob,
+                            projectName +
+                                ".png"
+                        );
+                    }
+                },
                 "image/png"
             );
 
             return;
         }
 
-        if (kind === "obj") {
+        if (
+            kind ===
+            "obj"
+        ) {
+            const result =
+                new OBJExporter()
+                    .parse(
+                        root
+                    );
+
             downloadBlob(
                 new Blob(
-                    [
-                        new OBJExporter()
-                            .parse(root)
-                    ],
+                    [result],
                     {
                         type:
                             "text/plain"
                     }
                 ),
+
                 projectName +
                     ".obj"
             );
@@ -1395,42 +1933,51 @@ function exportFile(kind) {
             return;
         }
 
-        new GLTFExporter().parse(
-            root,
+        new GLTFExporter()
+            .parse(
+                root,
 
-            (result) => {
-                const binary =
-                    kind === "glb";
+                (result) => {
+                    const binary =
+                        kind ===
+                        "glb";
 
-                downloadBlob(
-                    new Blob(
-                        [result],
-                        {
-                            type: binary
-                                ? "model/gltf-binary"
-                                : "model/gltf+json"
-                        }
-                    ),
+                    downloadBlob(
+                        new Blob(
+                            [result],
+                            {
+                                type:
+                                    binary
+                                        ? "model/gltf-binary"
+                                        : "model/gltf+json"
+                            }
+                        ),
 
-                    projectName +
-                        (binary
-                            ? ".glb"
-                            : ".gltf")
-                );
+                        projectName +
+                            (
+                                binary
+                                    ? ".glb"
+                                    : ".gltf"
+                            )
+                    );
 
-                toast(
-                    "Export completed."
-                );
-            },
+                    toast(
+                        "Export completed."
+                    );
+                },
 
-            {
-                binary:
-                    kind === "glb",
+                {
+                    binary:
+                        kind ===
+                        "glb",
 
-                onlyVisible: false
-            }
-        );
-    } catch (error) {
+                    onlyVisible:
+                        false
+                }
+            );
+    } catch (
+        error
+    ) {
         toast(
             "Export failed: " +
             error.message
@@ -1439,12 +1986,16 @@ function exportFile(kind) {
 }
 
 /* =========================================================
-   IMPORT GLTF
+   GLTF IMPORT
 ========================================================= */
 
-function importGLTF(file) {
+function importGLTF(
+    file
+) {
     const url =
-        URL.createObjectURL(file);
+        URL.createObjectURL(
+            file
+        );
 
     new GLTFLoader().load(
         url,
@@ -1471,24 +2022,39 @@ function importGLTF(file) {
                 gltf.scene
             );
 
-            select(
-                gltf.scene.getObjectByProperty(
-                    "isMesh",
-                    true
-                )
-            );
+            const firstMesh =
+                gltf.scene
+                    .getObjectByProperty(
+                        "isMesh",
+                        true
+                    );
+
+            if (firstMesh) {
+                select(
+                    firstMesh
+                );
+            }
 
             mark();
+
             pushHistory();
 
             toast(
                 "Model imported."
+            );
+
+            URL.revokeObjectURL(
+                url
             );
         },
 
         undefined,
 
         (error) => {
+            URL.revokeObjectURL(
+                url
+            );
+
             toast(
                 "Import failed: " +
                 error.message
@@ -1498,12 +2064,16 @@ function importGLTF(file) {
 }
 
 /* =========================================================
-   IMPORT OBJ
+   OBJ IMPORT
 ========================================================= */
 
-function importOBJ(file) {
+function importOBJ(
+    file
+) {
     const url =
-        URL.createObjectURL(file);
+        URL.createObjectURL(
+            file
+        );
 
     new OBJLoader().load(
         url,
@@ -1533,24 +2103,38 @@ function importOBJ(file) {
                 object
             );
 
-            select(
+            const firstMesh =
                 object.getObjectByProperty(
                     "isMesh",
                     true
-                )
-            );
+                );
+
+            if (firstMesh) {
+                select(
+                    firstMesh
+                );
+            }
 
             mark();
+
             pushHistory();
 
             toast(
                 "OBJ imported."
+            );
+
+            URL.revokeObjectURL(
+                url
             );
         },
 
         undefined,
 
         (error) => {
+            URL.revokeObjectURL(
+                url
+            );
+
             toast(
                 "Import failed: " +
                 error.message
@@ -1560,212 +2144,429 @@ function importOBJ(file) {
 }
 
 /* =========================================================
-   OBJECT / TOOL BUTTONS
+   ADD OBJECT BUTTONS
 ========================================================= */
 
-$$("[data-add]").forEach(
-    (button) => {
-        button.onclick = () =>
-            addObject(
-                button.dataset.add
-            );
-    }
-);
-
-$$("[data-tool]").forEach(
-    (button) => {
-        button.onclick = () =>
-            setTool(
-                button.dataset.tool
-            );
-    }
-);
-
-$("#addMenu").onclick = () =>
-    addObject("box");
-
-$("#moreBtn").onclick = () =>
-    $("#contextMenu").classList.toggle(
-        "hidden"
+$$("[data-add]")
+    .forEach(
+        (button) => {
+            button.onclick =
+                () => {
+                    addObject(
+                        button.dataset.add
+                    );
+                };
+        }
     );
+
+/* =========================================================
+   TOOL BUTTONS
+========================================================= */
+
+$$("[data-tool]")
+    .forEach(
+        (button) => {
+            button.onclick =
+                () => {
+                    setTool(
+                        button.dataset.tool
+                    );
+                };
+        }
+    );
+
+/* =========================================================
+   ADD MENU
+========================================================= */
+
+$("#addMenu").onclick =
+    () => {
+        addObject(
+            "box"
+        );
+    };
+
+/* =========================================================
+   MORE MENU
+========================================================= */
+
+$("#moreBtn").onclick =
+    () => {
+        $("#contextMenu")
+            .classList.toggle(
+                "hidden"
+            );
+    };
 
 /* =========================================================
    EXPORT BUTTONS
 ========================================================= */
 
-$$("[data-export]").forEach(
-    (button) => {
-        button.onclick = () => {
-            exportFile(
-                button.dataset.export
-            );
+$$("[data-export]")
+    .forEach(
+        (button) => {
+            button.onclick =
+                () => {
+                    exportFile(
+                        button.dataset.export
+                    );
 
-            $("#contextMenu").classList.add(
-                "hidden"
-            );
-        };
-    }
-);
+                    $("#contextMenu")
+                        .classList.add(
+                            "hidden"
+                        );
+                };
+        }
+    );
 
 /* =========================================================
    IMPORT BUTTONS
 ========================================================= */
 
-$$("[data-import]").forEach(
-    (button) => {
-        button.onclick = () => {
-            $("#importFile").accept =
-                button.dataset.import ===
-                "obj"
-                    ? ".obj"
-                    : ".gltf,.glb";
+$$("[data-import]")
+    .forEach(
+        (button) => {
+            button.onclick =
+                () => {
+                    $("#importFile")
+                        .accept =
+                        button.dataset.import ===
+                        "obj"
+                            ? ".obj"
+                            : ".gltf,.glb,.json";
 
-            $("#importFile").click();
+                    $("#importFile")
+                        .click();
 
-            $("#contextMenu").classList.add(
-                "hidden"
-            );
-        };
-    }
-);
+                    $("#contextMenu")
+                        .classList.add(
+                            "hidden"
+                        );
+                };
+        }
+    );
+
+/* =========================================================
+   UNIVERSAL IMPORT
+========================================================= */
 
 $("#importFile").onchange =
     (event) => {
         const file =
-            event.target.files[0];
+            event.target
+                .files[0];
 
-        if (!file) return;
+        if (!file) {
+            return;
+        }
 
         const name =
             file.name.toLowerCase();
 
         if (
-            name.endsWith(".json")
+            name.endsWith(
+                ".json"
+            )
         ) {
-            file.text().then(
-                (text) => {
-                    try {
-                        loadData(
-                            JSON.parse(
-                                text
-                            )
-                        );
+            file.text()
+                .then(
+                    (text) => {
+                        try {
+                            loadData(
+                                JSON.parse(
+                                    text
+                                )
+                            );
 
-                        toast(
-                            "Scene imported."
-                        );
-                    } catch {
-                        toast(
-                            "Failed to load project."
-                        );
+                            history = [
+                                JSON.stringify(
+                                    sceneData()
+                                )
+                            ];
+
+                            future = [];
+
+                            toast(
+                                "Scene imported."
+                            );
+                        } catch (
+                            error
+                        ) {
+                            toast(
+                                "Failed to load scene: " +
+                                error.message
+                            );
+                        }
                     }
-                }
-            );
+                );
         } else if (
-            name.endsWith(".obj")
+            name.endsWith(
+                ".obj"
+            )
         ) {
-            importOBJ(file);
+            importOBJ(
+                file
+            );
         } else {
-            importGLTF(file);
+            importGLTF(
+                file
+            );
         }
 
-        event.target.value = "";
+        event.target.value =
+            "";
     };
 
 /* =========================================================
-   PROJECT ACTIONS
+   ACTION BUTTONS
 ========================================================= */
 
-$$("[data-action]").forEach(
-    (button) => {
-        button.onclick = () => {
-            const actions = {
-                new: newProject,
-                open: openProject,
-                save: () => save(false),
-                saveAs: () => save(true),
-                undo,
-                redo
-            };
+$$("[data-action]")
+    .forEach(
+        (button) => {
+            button.onclick =
+                () => {
+                    const actions = {
+                        new:
+                            newProject,
 
-            actions[
-                button.dataset.action
-            ]?.();
-        };
-    }
-);
+                        open:
+                            openProject,
+
+                        save:
+                            () =>
+                                save(
+                                    false
+                                ),
+
+                        saveAs:
+                            () =>
+                                save(
+                                    true
+                                ),
+
+                        undo,
+
+                        redo
+                    };
+
+                    actions[
+                        button.dataset.action
+                    ]?.();
+                };
+        }
+    );
 
 /* =========================================================
-   TIMELINE
+   STOP ANIMATION
 ========================================================= */
 
-$("#play").onclick = () => {
-    playing = true;
-};
-
-$("#pause").onclick = () => {
+function stopAnimation() {
     playing = false;
-};
 
-$("#stop").onclick = () => {
-    playing = false;
+    animationTime = 0;
 
     frame = 1;
 
-    $("#frameInput").value = 1;
-};
+    $("#frameInput").value =
+        1;
+
+    $("#playhead").style.left =
+        "0%";
+
+    if (selected) {
+        applyAnimation(
+            true
+        );
+    }
+
+    $("#status").textContent =
+        dirty
+            ? "Unsaved Changes"
+            : "Ready";
+}
+
+/* =========================================================
+   PLAY
+========================================================= */
+
+$("#play").onclick =
+    () => {
+        if (!selected) {
+            toast(
+                "Select an animated object first."
+            );
+
+            return;
+        }
+
+        const animation =
+            animData.get(
+                selected
+            ) || [];
+
+        if (
+            animation.length <
+            2
+        ) {
+            toast(
+                "Add at least two keyframes first."
+            );
+
+            return;
+        }
+
+        playing = true;
+
+        lastAnimationTime =
+            performance.now();
+
+        $("#status").textContent =
+            "Playing";
+    };
+
+/* =========================================================
+   PAUSE
+========================================================= */
+
+$("#pause").onclick =
+    () => {
+        playing = false;
+
+        $("#status").textContent =
+            dirty
+                ? "Unsaved Changes"
+                : "Paused";
+    };
+
+/* =========================================================
+   STOP
+========================================================= */
+
+$("#stop").onclick =
+    () => {
+        stopAnimation();
+    };
+
+/* =========================================================
+   FRAME INPUT
+========================================================= */
 
 $("#frameInput").onchange =
     (event) => {
-        frame = Math.max(
-            1,
-            Math.min(
-                240,
-                +event.target.value || 1
-            )
-        );
+        playing = false;
+
+        frame =
+            Math.max(
+                1,
+
+                Math.min(
+                    MAX_FRAME,
+
+                    Number(
+                        event.target
+                            .value
+                    ) || 1
+                )
+            );
+
+        animationTime =
+            (frame - 1) /
+            FPS;
 
         applyAnimation();
+
+        $("#playhead").style.left =
+            (
+                (frame - 1) /
+                MAX_FRAME
+            ) *
+                100 +
+            "%";
     };
 
-$("#keyframe").onclick = () => {
-    if (!selected) return;
+/* =========================================================
+   KEYFRAME
+========================================================= */
 
-    const frames =
-        animData.get(selected) || [];
+$("#keyframe").onclick =
+    () => {
+        if (!selected) {
+            toast(
+                "Select an object first."
+            );
 
-    frames.push({
-        frame,
+            return;
+        }
 
-        position:
-            selected.position.toArray(),
+        const frames =
+            animData.get(
+                selected
+            ) || [];
 
-        rotation:
-            selected.rotation.toArray(),
+        const keyframe = {
+            frame,
 
-        scale:
-            selected.scale.toArray()
-    });
+            position:
+                selected.position
+                    .toArray(),
 
-    animData.set(
-        selected,
+            rotation:
+                selected.rotation
+                    .toArray(),
+
+            scale:
+                selected.scale
+                    .toArray()
+        };
+
+        const existingIndex =
+            frames.findIndex(
+                (item) =>
+                    item.frame ===
+                    frame
+            );
+
+        if (
+            existingIndex >=
+            0
+        ) {
+            frames[
+                existingIndex
+            ] = keyframe;
+        } else {
+            frames.push(
+                keyframe
+            );
+        }
+
         frames.sort(
             (a, b) =>
-                a.frame - b.frame
-        )
-    );
+                a.frame -
+                b.frame
+        );
 
-    mark();
-    pushHistory();
+        animData.set(
+            selected,
+            frames
+        );
 
-    toast(
-        "Keyframe added."
-    );
-};
+        mark();
+
+        pushHistory();
+
+        toast(
+            `Keyframe ${frame} added.`
+        );
+    };
+
+/* =========================================================
+   TIMELINE RULER
+========================================================= */
 
 for (
     let i = 1;
-    i <= 240;
+    i <= MAX_FRAME;
     i += 10
 ) {
     const span =
@@ -1773,20 +2574,64 @@ for (
             "span"
         );
 
-    span.textContent = i;
+    span.textContent =
+        i;
 
-    $("#ruler").appendChild(
-        span
-    );
+    $("#ruler")
+        .appendChild(
+            span
+        );
 }
 
-function applyAnimation() {
-    if (!selected) return;
+/* =========================================================
+   ANIMATION ENGINE
+========================================================= */
+
+function applyAnimation(
+    resetToStart = false
+) {
+    if (!selected) {
+        return;
+    }
 
     const animation =
-        animData.get(selected) || [];
+        animData.get(
+            selected
+        ) || [];
 
-    if (animation.length < 1) {
+    if (
+        !animation.length
+    ) {
+        return;
+    }
+
+    if (
+        resetToStart
+    ) {
+        frame = 1;
+    }
+
+    if (
+        animation.length ===
+        1
+    ) {
+        const only =
+            animation[0];
+
+        selected.position.fromArray(
+            only.position
+        );
+
+        selected.rotation.fromArray(
+            only.rotation
+        );
+
+        selected.scale.fromArray(
+            only.scale
+        );
+
+        renderProps();
+
         return;
     }
 
@@ -1795,19 +2640,25 @@ function applyAnimation() {
 
     let next =
         animation[
-            animation.length - 1
+            animation.length -
+                1
         ];
 
-    for (const keyframe of animation) {
+    for (
+        const keyframe
+        of animation
+    ) {
         if (
-            keyframe.frame <= frame
+            keyframe.frame <=
+            frame
         ) {
             previous =
                 keyframe;
         }
 
         if (
-            keyframe.frame >= frame
+            keyframe.frame >=
+            frame
         ) {
             next =
                 keyframe;
@@ -1816,45 +2667,94 @@ function applyAnimation() {
         }
     }
 
+    const range =
+        next.frame -
+        previous.frame;
+
     const t =
-        previous === next
+        range <= 0
             ? 0
-            : (
-                frame -
-                previous.frame
-            ) /
-              (
-                next.frame -
-                previous.frame
-              );
+            : THREE.MathUtils.clamp(
+                (
+                    frame -
+                    previous.frame
+                ) /
+                    range,
 
-    selected.position
-        .fromArray(
-            previous.position
-        )
-        .lerp(
-            new THREE.Vector3()
-                .fromArray(
-                    next.position
-                ),
-            t
-        );
+                0,
 
-    selected.rotation.set(
-        ...previous.rotation
+                1
+            );
+
+    /* -------------------------
+       POSITION
+    ------------------------- */
+
+    const positionA =
+        new THREE.Vector3()
+            .fromArray(
+                previous.position
+            );
+
+    const positionB =
+        new THREE.Vector3()
+            .fromArray(
+                next.position
+            );
+
+    selected.position.lerpVectors(
+        positionA,
+        positionB,
+        t
     );
 
-    selected.scale
-        .fromArray(
-            previous.scale
-        )
-        .lerp(
-            new THREE.Vector3()
-                .fromArray(
-                    next.scale
-                ),
-            t
-        );
+    /* -------------------------
+       ROTATION
+    ------------------------- */
+
+    const quaternionA =
+        new THREE.Quaternion()
+            .setFromEuler(
+                new THREE.Euler(
+                    ...previous.rotation
+                )
+            );
+
+    const quaternionB =
+        new THREE.Quaternion()
+            .setFromEuler(
+                new THREE.Euler(
+                    ...next.rotation
+                )
+            );
+
+    selected.quaternion.slerpQuaternions(
+        quaternionA,
+        quaternionB,
+        t
+    );
+
+    /* -------------------------
+       SCALE
+    ------------------------- */
+
+    const scaleA =
+        new THREE.Vector3()
+            .fromArray(
+                previous.scale
+            );
+
+    const scaleB =
+        new THREE.Vector3()
+            .fromArray(
+                next.scale
+            );
+
+    selected.scale.lerpVectors(
+        scaleA,
+        scaleB,
+        t
+    );
 
     renderProps();
 }
@@ -1866,24 +2766,35 @@ function applyAnimation() {
 addEventListener(
     "keydown",
     (event) => {
+        const key =
+            event.key.toLowerCase();
+
+        /* SAVE */
+
         if (
-            (event.ctrlKey ||
-                event.metaKey) &&
-            event.key.toLowerCase() ===
-                "s"
+            (
+                event.ctrlKey ||
+                event.metaKey
+            ) &&
+            key === "s"
         ) {
             event.preventDefault();
 
-            save(event.shiftKey);
+            save(
+                event.shiftKey
+            );
 
             return;
         }
 
+        /* OPEN */
+
         if (
-            (event.ctrlKey ||
-                event.metaKey) &&
-            event.key.toLowerCase() ===
-                "o"
+            (
+                event.ctrlKey ||
+                event.metaKey
+            ) &&
+            key === "o"
         ) {
             event.preventDefault();
 
@@ -1892,11 +2803,14 @@ addEventListener(
             return;
         }
 
+        /* NEW */
+
         if (
-            (event.ctrlKey ||
-                event.metaKey) &&
-            event.key.toLowerCase() ===
-                "n"
+            (
+                event.ctrlKey ||
+                event.metaKey
+            ) &&
+            key === "n"
         ) {
             event.preventDefault();
 
@@ -1905,15 +2819,20 @@ addEventListener(
             return;
         }
 
+        /* UNDO */
+
         if (
-            (event.ctrlKey ||
-                event.metaKey) &&
-            event.key.toLowerCase() ===
-                "z"
+            (
+                event.ctrlKey ||
+                event.metaKey
+            ) &&
+            key === "z"
         ) {
             event.preventDefault();
 
-            if (event.shiftKey) {
+            if (
+                event.shiftKey
+            ) {
                 redo();
             } else {
                 undo();
@@ -1922,18 +2841,14 @@ addEventListener(
             return;
         }
 
+        /* REDO */
+
         if (
-            (event.ctrlKey ||
-                event.metaKey) &&
             (
-                event.key.toLowerCase() ===
-                    "y" ||
-                (
-                    event.key.toLowerCase() ===
-                        "z" &&
-                    event.shiftKey
-                )
-            )
+                event.ctrlKey ||
+                event.metaKey
+            ) &&
+            key === "y"
         ) {
             event.preventDefault();
 
@@ -1942,41 +2857,75 @@ addEventListener(
             return;
         }
 
+        /* INPUT */
+
         if (
             event.target.matches(
-                "input"
+                "input, textarea"
             )
         ) {
             return;
         }
 
-        const key =
-            event.key.toLowerCase();
+        /* MOVE */
 
-        if (key === "g") {
-            setTool("translate");
+        if (
+            key === "g"
+        ) {
+            setTool(
+                "translate"
+            );
         }
 
-        if (key === "r") {
-            setTool("rotate");
+        /* ROTATE */
+
+        if (
+            key === "r"
+        ) {
+            setTool(
+                "rotate"
+            );
         }
 
-        if (key === "s") {
-            setTool("scale");
+        /* SCALE */
+
+        if (
+            key === "s"
+        ) {
+            setTool(
+                "scale"
+            );
         }
+
+        /* FOCUS */
 
         if (
             key === "f" &&
             selected
         ) {
-            focusObject(selected);
+            focusObject(
+                selected
+            );
         }
+
+        /* DELETE */
 
         if (
             event.key ===
             "Delete"
         ) {
             deleteSelected();
+        }
+
+        /* ESCAPE */
+
+        if (
+            event.key ===
+            "Escape"
+        ) {
+            playing = false;
+
+            transform.detach();
         }
     }
 );
@@ -1988,8 +2937,15 @@ addEventListener(
 renderer.domElement.addEventListener(
     "pointerdown",
     (event) => {
+        if (
+            transform.dragging
+        ) {
+            return;
+        }
+
         const rect =
-            renderer.domElement.getBoundingClientRect();
+            renderer.domElement
+                .getBoundingClientRect();
 
         mouse.x =
             (
@@ -1997,7 +2953,7 @@ renderer.domElement.addEventListener(
                     event.clientX -
                     rect.left
                 ) /
-                rect.width
+                    rect.width
             ) *
                 2 -
             1;
@@ -2005,13 +2961,15 @@ renderer.domElement.addEventListener(
         mouse.y =
             -(
                 (
-                    event.clientY -
-                    rect.top
-                ) /
-                rect.height
-            ) *
-                2 +
-            1;
+                    (
+                        event.clientY -
+                        rect.top
+                    ) /
+                        rect.height
+                ) *
+                    2 -
+                1
+            );
 
         raycaster.setFromCamera(
             mouse,
@@ -2027,7 +2985,9 @@ renderer.domElement.addEventListener(
                 true
             );
 
-        if (hits[0]) {
+        if (
+            hits.length
+        ) {
             let object =
                 hits[0].object;
 
@@ -2039,49 +2999,104 @@ renderer.domElement.addEventListener(
                     object.parent;
             }
 
-            select(object);
+            select(
+                object
+            );
         } else {
-            select(null);
+            select(
+                null
+            );
         }
     }
 );
 
 /* =========================================================
-   MAIN RENDER LOOP
+   RENDER LOOP
 ========================================================= */
 
 let last =
     performance.now();
 
-function loop(now) {
-    requestAnimationFrame(loop);
+function loop(
+    now
+) {
+    requestAnimationFrame(
+        loop
+    );
 
     const delta =
-        now - last;
+        Math.min(
+            0.05,
+
+            (
+                now -
+                last
+            ) /
+                1000
+        );
 
     last = now;
 
-    if (playing) {
-        frame++;
+    /* -------------------------
+       ANIMATION PLAYBACK
+    ------------------------- */
 
-        if (frame > 240) {
+    if (
+        playing
+    ) {
+        animationTime +=
+            delta;
+
+        const nextFrame =
+            1 +
+            animationTime *
+                FPS;
+
+        if (
+            nextFrame >=
+            MAX_FRAME
+        ) {
+            animationTime = 0;
+
             frame = 1;
+        } else {
+            frame =
+                nextFrame;
         }
 
         $("#frameInput").value =
-            frame;
+            Math.floor(
+                frame
+            );
 
         $("#playhead").style.left =
             (
-                (frame - 1) /
-                240 *
-                100
-            ) + "%";
+                (
+                    frame - 1
+                ) /
+                    MAX_FRAME
+            ) *
+                100 +
+            "%";
 
         applyAnimation();
     }
 
+    /* -------------------------
+       INFINITE GRID
+    ------------------------- */
+
+    updateInfiniteGrid();
+
+    /* -------------------------
+       CAMERA
+    ------------------------- */
+
     orbit.update();
+
+    /* -------------------------
+       RENDER
+    ------------------------- */
 
     renderer.render(
         scene,
@@ -2089,26 +3104,35 @@ function loop(now) {
     );
 }
 
-requestAnimationFrame(loop);
+requestAnimationFrame(
+    loop
+);
 
 /* =========================================================
-   AUTOSAVE / RECOVERY
+   AUTOSAVE
 ========================================================= */
 
 setInterval(
     () => {
-        if (dirty) {
-            localStorage.setItem(
-                "miniBlenderRecovery",
-
-                JSON.stringify(
-                    sceneData()
-                )
-            );
+        if (!dirty) {
+            return;
         }
+
+        localStorage.setItem(
+            "miniBlenderRecovery",
+
+            JSON.stringify(
+                sceneData()
+            )
+        );
     },
+
     120000
 );
+
+/* =========================================================
+   RECOVERY
+========================================================= */
 
 const recovery =
     localStorage.getItem(
@@ -2123,41 +3147,46 @@ if (recovery) {
 
         [
             {
-                t: "Recover",
+                t:
+                    "Recover",
 
-                c: () => {
-                    try {
-                        loadData(
-                            JSON.parse(
-                                recovery
-                            )
-                        );
+                c:
+                    () => {
+                        try {
+                            loadData(
+                                JSON.parse(
+                                    recovery
+                                )
+                            );
 
-                        toast(
-                            "Recovery restored."
-                        );
-                    } catch {
-                        toast(
-                            "Recovery data is invalid."
-                        );
+                            toast(
+                                "Recovery restored."
+                            );
+                        } catch {
+                            toast(
+                                "Recovery data is invalid."
+                            );
+                        }
                     }
-                }
             },
 
             {
-                t: "Discard",
+                t:
+                    "Discard",
 
-                c: () =>
-                    localStorage.removeItem(
-                        "miniBlenderRecovery"
-                    )
+                c:
+                    () => {
+                        localStorage.removeItem(
+                            "miniBlenderRecovery"
+                        );
+                    }
             }
         ]
     );
 }
 
 /* =========================================================
-   INITIALIZE EDITOR
+   INITIALIZE
 ========================================================= */
 
 history = [
@@ -2167,5 +3196,13 @@ history = [
 ];
 
 renderList();
+
 renderProps();
+
 updateTitle();
+
+updateInfiniteGrid();
+
+setTool(
+   "translate"
+);
